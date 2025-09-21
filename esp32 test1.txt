@@ -1,0 +1,125 @@
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <Preferences.h>
+#include <BLE2902.h>
+
+// -- Configuration --
+#define LED_PIN 2 // The pin for the built-in LED
+#define SECRET_AUTH_KEY "MySecretWallet2025!"
+#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CMD_CHAR_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define RSP_CHAR_UUID "beb5483f-36e1-4688-b7f5-ea07361b26a8"
+
+// -- Global Variables --
+Preferences prefs;
+bool isAuthenticated = false;
+bool isConnected = false;
+BLECharacteristic *pResponseCharacteristic;
+
+void sendResponse(const char* response) {
+    pResponseCharacteristic->setValue(response);
+    pResponseCharacteristic->notify();
+}
+
+void handleCommand(const char* cmd) {
+    if (strncmp(cmd, "AUTH:", 5) == 0) {
+        if (strcmp(cmd + 5, SECRET_AUTH_KEY) == 0) {
+            isAuthenticated = true;
+            sendResponse("OK:Auth");
+        } else {
+            isAuthenticated = false;
+            sendResponse("ERR:Auth");
+        }
+    } else if (strcmp(cmd, "RETRIEVE") == 0) {
+        if (!isAuthenticated) { sendResponse("ERR:Auth"); return; }
+        char storedData[100];
+        prefs.getString("enc_key", storedData, sizeof(storedData));
+        char response[120];
+        snprintf(response, sizeof(response), "DATA:%s", storedData);
+        sendResponse(response);
+    } else if (strncmp(cmd, "STORE:", 6) == 0) {
+        if (!isAuthenticated) { sendResponse("ERR:Auth"); return; }
+        prefs.putString("enc_key", cmd + 6);
+        sendResponse("OK:Stored");
+    } else {
+        sendResponse("ERR:Cmd");
+    }
+}
+
+class CommandCallbacks: public BLECharacteristicCallbacks {
+    // <-- FIX IS HERE
+    void onWrite(BLECharacteristic *pCharacteristic) {
+        // Get the value as an Arduino String object first
+        String value = pCharacteristic->getValue();
+        
+        // If the string has content, convert it to a standard C-string for our handler
+        if (value.length() > 0) {
+            handleCommand(value.c_str());
+        }
+    }
+};
+
+class ServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      isConnected = true;
+      isAuthenticated = false; // Require re-auth on new connection
+    }
+    void onDisconnect(BLEServer* pServer) {
+      isConnected = false;
+      isAuthenticated = false;
+      BLEDevice::startAdvertising(); // Allow new connections
+    }
+};
+
+void setup() {
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  prefs.begin("SecureWallet", false);
+
+  BLEDevice::init("SecureLink_Wallet");
+  BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new ServerCallbacks());
+  
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  
+  pService->createCharacteristic(CMD_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE)
+          ->setCallbacks(new CommandCallbacks());
+
+  pResponseCharacteristic = pService->createCharacteristic(RSP_CHAR_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+  pResponseCharacteristic->addDescriptor(new BLE2902());
+
+  pService->start();
+  
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06); 
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+
+  // Startup blink to show device is ready
+  for(int i=0; i<3; i++){
+    digitalWrite(LED_PIN, HIGH); delay(100);
+    digitalWrite(LED_PIN, LOW); delay(100);
+  }
+}
+
+void loop() {
+  static unsigned long lastBlinkTime = 0;
+
+  if (isAuthenticated) {
+    digitalWrite(LED_PIN, HIGH); // Solid ON when authenticated
+  } else if (isConnected) {
+    // Slow blink when connected but not authenticated
+    if (millis() - lastBlinkTime > 1000) {
+      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+      lastBlinkTime = millis();
+    }
+  } else {
+    digitalWrite(LED_PIN, LOW); // Off when disconnected
+  }
+  
+  delay(50); // Small delay to keep the CPU from running too hot
+}
+
