@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>cheesekeeper Web Bluetooth Tester</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .log-entry { border-left: 3px solid; }
+        .log-send { border-color: #3b82f6; background-color: rgba(59, 130, 246, 0.1); }
+        .log-receive { border-color: #22c55e; background-color: rgba(34, 197, 94, 0.1); }
+        .log-system { border-color: #f97316; background-color: rgba(249, 115, 22, 0.1); }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl p-6 space-y-6">
+        <div class="text-center">
+            <h1 class="text-3xl font-bold text-cyan-400">cheesekeeper Web Tester</h1>
+            <p id="status" class="text-gray-400 mt-1">Disconnected</p>
+        </div>
+
+        <button id="connectBtn" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 shadow-lg">
+            Connect to cheesekeeper
+        </button>
+
+        <!-- Control Panel -->
+        <div id="controls" class="hidden space-y-4">
+            <!-- Login & Set Password -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-gray-700 p-4 rounded-lg">
+                    <h2 class="font-semibold mb-2 text-gray-300">1. Authenticate / Set Password</h2>
+                    <input type="password" id="passwordInput" placeholder="Enter password" class="w-full bg-gray-800 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500">
+                    <div class="flex space-x-2 mt-2">
+                        <button id="loginBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors">Login</button>
+                        <button id="setPasswordBtn" class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-md transition-colors">Set New</button>
+                    </div>
+                </div>
+                <!-- Store & Manage -->
+                <div class="bg-gray-700 p-4 rounded-lg">
+                    <h2 class="font-semibold mb-2 text-gray-300">2. Manage Key Fragment</h2>
+                    <input type="text" id="fragmentInput" placeholder="Enter key fragment to store" class="w-full bg-gray-800 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500">
+                     <button id="storeBtn" class="w-full mt-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition-colors">Store Fragment</button>
+                </div>
+            </div>
+             <!-- Logout -->
+            <button id="logoutBtn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">Logout</button>
+        </div>
+
+        <!-- Log -->
+        <div class="bg-gray-900 p-4 rounded-lg h-64 overflow-y-auto">
+            <h2 class="font-semibold mb-2 text-gray-400">Communication Log</h2>
+            <div id="log" class="space-y-2 text-sm font-mono"></div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const connectBtn = document.getElementById('connectBtn');
+        const statusEl = document.getElementById('status');
+        const logEl = document.getElementById('log');
+        const controlsEl = document.getElementById('controls');
+        const loginBtn = document.getElementById('loginBtn');
+        const setPasswordBtn = document.getElementById('setPasswordBtn');
+        const storeBtn = document.getElementById('storeBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const passwordInput = document.getElementById('passwordInput');
+        const fragmentInput = document.getElementById('fragmentInput');
+        
+        // ESP32 Configuration (must match firmware)
+        const SCRAMBLE_KEY = 0xAB;
+        const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+        const CMD_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+        const RSP_CHAR_UUID = "beb5483f-36e1-4688-b7f5-ea07361b26a8";
+
+        // Global State
+        let commandCharacteristic;
+        let bleDevice;
+        const textEncoder = new TextEncoder();
+        const textDecoder = new TextDecoder();
+
+        function log(message, type = 'system') {
+            const typeClasses = { send: 'log-send', receive: 'log-receive', system: 'log-system' };
+            const prefix = { send: '>>', receive: '<<', system: '--' };
+            logEl.innerHTML += `<div class="log-entry ${typeClasses[type]} p-2 rounded-md"><span class="mr-2 font-bold">${prefix[type]}</span>${message}</div>`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function scramble(str) {
+            let scrambled = '';
+            for (let i = 0; i < str.length; i++) {
+                scrambled += String.fromCharCode(str.charCodeAt(i) ^ SCRAMBLE_KEY);
+            }
+            return scrambled;
+        }
+
+        async function sendCommand(command, payload = "") {
+            if (!commandCharacteristic) { return log('Cannot send: Not connected.', 'system'); }
+            
+            const scrambledPayload = payload ? scramble(payload) : "";
+            const jsonCommand = JSON.stringify({ command, payload: scrambledPayload });
+
+            try {
+                await commandCharacteristic.writeValue(textEncoder.encode(jsonCommand));
+                log(`Sent: ${jsonCommand}`, 'send');
+            } catch (error) { log(`Error sending command: ${error}`, 'system'); }
+        }
+        
+        function handleNotifications(event) {
+            const value = event.target.value;
+            const text = textDecoder.decode(value);
+            log(`Received: ${text}`, 'receive');
+            try {
+                const jsonResponse = JSON.parse(text);
+                if(jsonResponse.status === "2") {
+                    log(`<b>Login successful!</b> Key Fragment: ${jsonResponse.data}`, 'system');
+                } else if (jsonResponse.status === "1") {
+                    log(`<b>Setup Complete.</b> New password has been set.`, 'system');
+                }
+            } catch(e) { /* Ignore non-json responses */ }
+        }
+
+        function onDisconnected() {
+            log('Device disconnected.', 'system');
+            statusEl.textContent = 'Disconnected';
+            connectBtn.classList.remove('hidden');
+            controlsEl.classList.add('hidden');
+            commandCharacteristic = null;
+        }
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                log('Requesting Bluetooth device...');
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'cheesekeeper' }],
+                    optionalServices: [SERVICE_UUID]
+                });
+                
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+                log('Connecting to GATT Server...');
+                const server = await bleDevice.gatt.connect();
+                log('Getting Service...');
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                log('Getting Characteristics...');
+                commandCharacteristic = await service.getCharacteristic(CMD_CHAR_UUID);
+                const responseCharacteristic = await service.getCharacteristic(RSP_CHAR_UUID);
+                
+                await responseCharacteristic.startNotifications();
+                responseCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+
+                log('Connected successfully!', 'system');
+                statusEl.textContent = 'Connected to cheesekeeper';
+                connectBtn.classList.add('hidden');
+                controlsEl.classList.remove('hidden');
+
+            } catch (error) {
+                log(`Error: ${error}`, 'system');
+                statusEl.textContent = 'Connection Failed';
+            }
+        });
+        
+        // --- Button Event Listeners ---
+        loginBtn.addEventListener('click', () => sendCommand('login', passwordInput.value));
+        setPasswordBtn.addEventListener('click', () => sendCommand('setPassword', passwordInput.value));
+        storeBtn.addEventListener('click', () => sendCommand('storeFragment', fragmentInput.value));
+        logoutBtn.addEventListener('click', () => sendCommand('logout', ''));
+    </script>
+</body>
+</html>
+
