@@ -1,0 +1,54 @@
+# Generated files.
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# IDE-specific files.
+.idea/
+*.iml
+*.vscode/
+
+# Android files.
+android/app/build/
+android/build/
+android/.gradle/
+android/key.properties
+android/*.jks
+android/*.keystore
+
+# iOS files.
+ios/build/
+ios/Pods/
+ios/Runner.xcworkspace/
+ios/Runner/GeneratedPluginRegistrant.*
+ios/.symlinks/
+ios/Flutter/App.framework
+ios/Flutter/engine.version
+
+# macOS files
+macos/build/
+macos/Pods/
+macos/Runner.xcworkspace/
+macos/.symlinks/
+
+# Windows files
+windows/build/
+windows/.vs/
+
+# Linux files
+linux/build/
+
+# Web files
+web/build/
+
+# Miscellaneous
+*.log
+app.dSYM/
+
+# Sensitive files - add your own here
+# .env
+# secrets.json

@@ -13,7 +13,6 @@ class CheeseKeeperApp extends StatelessWidget {
       theme: ThemeData(
         brightness: Brightness.dark,
         primaryColor: const Color(0xFF0A0E27),
-        fontFamily: 'Roboto',
       ),
       initialRoute: '/login',
       routes: {
