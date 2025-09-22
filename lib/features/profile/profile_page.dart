@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../core/utils/encryption.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/models/user.dart';
+import '../../core/services/blockchain_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({Key? key}) : super(key: key);
@@ -13,9 +13,9 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   User? _user;
-  bool _showPrivateKey = false;
-  bool _showPassword = false;
   bool _loading = true;
+  bool _savingRpc = false;
+  final _rpcController = TextEditingController();
 
   @override
   void initState() {
@@ -25,6 +25,13 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadUser() async {
     final user = await StorageService.loadUser();
+    final savedRpc = await StorageService.getString('rpc_url');
+    if (savedRpc != null && savedRpc.isNotEmpty) {
+      BlockchainService.configure(rpc: savedRpc);
+      _rpcController.text = savedRpc;
+    } else {
+      _rpcController.text = BlockchainService.rpcUrl;
+    }
     setState(() {
       _user = user;
       _loading = false;
@@ -33,29 +40,40 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _logout(BuildContext context) async {
     await StorageService.removeUser();
+    if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+  }
+
+  Widget _card({required String title, required IconData icon, required Widget child}) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 12),
+                Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            child,
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-
     if (_user == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Profile')),
-        body: const Center(child: Text('No user data found.')),
-      );
+      return Scaffold(appBar: AppBar(title: const Text('Profile')), body: const Center(child: Text('No user data found.')));
     }
-
-    final password = "your_password"; // Retrieve the password securely
-    final decryptedPrivateKey =
-        EncryptionUtil.decryptAES(_user!.encryptedPrivateKey!, password);
-    final decryptedMnemonic =
-        EncryptionUtil.decryptAES(_user!.mnemonic!, password);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
@@ -64,90 +82,70 @@ class _ProfilePageState extends State<ProfilePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Public Key:",
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            Row(
-              children: [
-                Expanded(child: SelectableText(_user!.publicKey)),
-                IconButton(
-                  icon: const Icon(Icons.copy),
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: _user!.publicKey));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Public key copied!")));
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            const Text("Private Key:",
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _showPrivateKey
-                        ? decryptedPrivateKey
-                        : "----------------------",
-                    style: const TextStyle(letterSpacing: 2),
+            _card(
+              title: 'RPC URL (Ganache)',
+              icon: Icons.settings_ethernet,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: _rpcController,
+                    decoration: const InputDecoration(
+                      labelText: 'http://127.0.0.1:8545',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                ),
-                TextButton(
-                  onPressed: () =>
-                      setState(() => _showPrivateKey = !_showPrivateKey),
-                  child: Text(_showPrivateKey ? "Hide" : "Show"),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            const Text("Password:",
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _showPassword ? "Encrypted" : "--------",
-                    style: const TextStyle(letterSpacing: 2),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _savingRpc
+                          ? null
+                          : () async {
+                              setState(() => _savingRpc = true);
+                              final rpc = _rpcController.text.trim();
+                              await StorageService.saveString('rpc_url', rpc);
+                              BlockchainService.configure(rpc: rpc);
+                              setState(() => _savingRpc = false);
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('RPC URL saved')));
+                            },
+                      icon: _savingRpc
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                          : const Icon(Icons.save, size: 18),
+                      label: Text(_savingRpc ? 'Saving...' : 'Save'),
+                    ),
                   ),
-                ),
-                TextButton(
-                  onPressed: () =>
-                      setState(() => _showPassword = !_showPassword),
-                  child: Text(_showPassword ? "Hide" : "Show Password"),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                // Show mnemonic in a secure dialog
-                showDialog(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text("Recovery Mnemonic"),
-                    content: Text(decryptedMnemonic),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text("Close"),
-                      ),
-                    ],
-                  ),
-                );
-              },
-              child: const Text("Show Recovery Mnemonic"),
-            ),
-            const Spacer(),
-            Center(
-              child: ElevatedButton.icon(
-                onPressed: () => _logout(context),
-                icon: const Icon(Icons.logout),
-                label: const Text("Logout"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                ),
+                ],
               ),
             ),
+            const SizedBox(height: 24),
+            _card(
+              title: 'Public Address',
+              icon: Icons.key,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SelectableText(
+                    _user!.publicKey,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: _user!.publicKey));
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Public key copied!')));
+                      },
+                      icon: const Icon(Icons.copy, size: 16),
+                      label: const Text('Copy Public Key'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
           ],
         ),
       ),

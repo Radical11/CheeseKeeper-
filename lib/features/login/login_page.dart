@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../core/services/storage_service.dart';
-import '../../core/models/user.dart';
+import '../../core/services/crypto_service.dart';
+import 'dart:convert';
+
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
 
@@ -11,7 +13,48 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final TextEditingController _passwordController = TextEditingController();
   String? _error;
+  bool _isLogging = false;
 
+  Future<void> _handleLogin() async {
+    final password = _passwordController.text.trim();
+    if (password.isEmpty) {
+      setState(() => _error = 'Password required');
+      return;
+    }
+
+    setState(() {
+      _isLogging = true;
+      _error = null;
+    });
+
+    try {
+      // Load existing user profile
+      final existing = await StorageService.loadUser();
+      if (existing == null || existing.encryptedPrivateKey == null) {
+        setState(() {
+          _error = 'No wallet found. Please run setup first.';
+        });
+        return;
+      }
+
+      // Attempt to decrypt stored private key
+      final enc = json.decode(existing.encryptedPrivateKey!);
+      final priv = CryptoService.decryptAES(enc['ciphertext'], enc['iv'], password);
+      if (priv == null) {
+        setState(() => _error = 'Incorrect password');
+        return;
+      }
+
+      // Successful decryption means password is valid; proceed to main
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/main');
+      return;
+    } catch (e) {
+      setState(() => _error = 'Login error: ${e.toString()}');
+    } finally {
+      setState(() => _isLogging = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,15 +74,20 @@ class _LoginPageState extends State<LoginPage> {
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: () async {
-                User? user = await StorageService.loadUser();
-                if (user != null) {
-                  Navigator.pushReplacementNamed(context, '/main');
-                } else {
-                  // Handle the case where the user is null, e.g., show an error message
-                }
-              },
-              child: const Text('Login'),
+              onPressed: _isLogging ? null : () => _handleLogin(),
+              child: _isLogging 
+                ? const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 16, height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Logging in...')
+                    ],
+                  )
+                : const Text('Login'),
             ),
             const SizedBox(height: 24),
             TextButton(

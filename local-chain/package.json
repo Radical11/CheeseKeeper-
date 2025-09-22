@@ -1,0 +1,12 @@
+{
+  "name": "ck-local-chain",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fund": "node scripts/fund-address.js"
+  },
+  "dependencies": {
+    "ethers": "^6.13.2"
+  }
+}

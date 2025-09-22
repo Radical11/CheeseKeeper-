@@ -1,5 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:barcode_scan2/barcode_scan2.dart';
 import '../../core/utils/validators.dart';
+import '../../core/services/blockchain_service.dart';
+import '../../core/services/storage_service.dart';
+import 'dart:convert';
+import '../../core/services/crypto_service.dart';
+import 'package:web3dart/web3dart.dart';
+import '../../core/services/transaction_service.dart';
+import '../../core/models/transaction.dart';
 
 class SendPage extends StatefulWidget {
   const SendPage({Key? key}) : super(key: key);
@@ -11,9 +19,20 @@ class SendPage extends StatefulWidget {
 class _SendPageState extends State<SendPage> {
   final TextEditingController _addressController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
   String? _error;
+  bool _sending = false;
 
-  void _validateAndSend() {
+  Future<void> _scanAddress() async {
+    try {
+      final result = await BarcodeScanner.scan();
+      if (result.rawContent.isNotEmpty) {
+        setState(() => _addressController.text = result.rawContent.trim());
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _validateAndSend() async {
     final address = _addressController.text.trim();
     final amount = _amountController.text.trim();
 
@@ -33,9 +52,65 @@ class _SendPageState extends State<SendPage> {
       setState(() => _error = "Enter a valid amount.");
       return;
     }
-    // Proceed with sending transaction
-    setState(() => _error = null);
-    // TODO: Send transaction logic
+
+    final password = _passwordController.text.trim();
+    if (password.isEmpty) {
+      setState(() => _error = "Password required to sign transaction.");
+      return;
+    }
+
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+
+    try {
+      // Load user for encrypted private key
+      final user = await StorageService.loadUser();
+      if (user == null || user.encryptedPrivateKey == null) {
+        setState(() => _error = 'Wallet not initialized.');
+        return;
+      }
+      final enc = json.decode(user.encryptedPrivateKey!);
+      final privHex = CryptoService.decryptAES(enc['ciphertext'], enc['iv'], password);
+      if (privHex == null) {
+        setState(() => _error = 'Incorrect password.');
+        return;
+      }
+
+      final creds = EthPrivateKey.fromHex(privHex);
+      final to = EthereumAddress.fromHex(address);
+      // Convert amount to EtherAmount properly (EtherUnit.ether already handles the wei conversion)
+      final ethAmount = EtherAmount.fromUnitAndValue(EtherUnit.ether, double.parse(amount));
+
+      final txHash = await BlockchainService.sendEth(
+        credentials: creds,
+        to: to,
+        amount: ethAmount,
+      );
+
+      // Persist in local history for demo
+      final fromAddr = (await creds.extractAddress()).hexEip55;
+      await TransactionService.add(WalletTransaction(
+        hash: txHash,
+        from: fromAddr,
+        to: address,
+        amount: double.parse(amount),
+        timestamp: DateTime.now(),
+        status: 'Pending',
+      ));
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Transaction sent: $txHash')),
+      );
+      _amountController.clear();
+
+    } catch (e) {
+      setState(() => _error = "Error sending transaction: ${e.toString()}");
+    } finally {
+      setState(() => _sending = false);
+    }
   }
 
   @override
@@ -48,9 +123,13 @@ class _SendPageState extends State<SendPage> {
           children: [
             TextField(
               controller: _addressController,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: "Recipient Address",
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.qr_code_scanner),
+                  onPressed: _scanAddress,
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -60,7 +139,16 @@ class _SendPageState extends State<SendPage> {
                 labelText: "Amount (ETH)",
                 border: OutlineInputBorder(),
               ),
-              keyboardType: TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: "Password",
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: 16),
             if (_error != null)
@@ -70,8 +158,20 @@ class _SendPageState extends State<SendPage> {
               ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: _validateAndSend,
-              child: const Text("Send"),
+              onPressed: _sending ? null : _validateAndSend,
+              child: _sending 
+                ? const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 16, height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                      ),
+                      SizedBox(width: 8),
+                      Text("Sending...")
+                    ],
+                  )
+                : const Text("Send"),
             ),
           ],
         ),

@@ -6,7 +6,8 @@ import '../../../core/services/storage_service.dart';
 import '../../../core/models/user.dart';
 
 class Step5Mnemonic extends StatefulWidget {
-  const Step5Mnemonic({Key? key}) : super(key: key);
+  final VoidCallback? onNext;
+  const Step5Mnemonic({Key? key, this.onNext}) : super(key: key);
 
   @override
   State<Step5Mnemonic> createState() => _Step5MnemonicState();
@@ -42,8 +43,7 @@ class _Step5MnemonicState extends State<Step5Mnemonic> {
     }
 
     // Proceed with saving mnemonic
-    setState(() => _error = null);
-    // TODO: Save mnemonic logic
+    setState(() { _error = null; _saved = true; });
   }
 
   @override
@@ -77,12 +77,19 @@ class _Step5MnemonicState extends State<Step5Mnemonic> {
             onPressed: _validateAndSave,
             child: const Text("Save Recovery Phrase"),
           ),
-          if (_saved)
+          if (_saved) ...[
             const Padding(
               padding: EdgeInsets.only(top: 16),
               child:
                   Icon(Icons.check_circle, color: Colors.greenAccent, size: 40),
             ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: widget.onNext,
+              icon: const Icon(Icons.arrow_forward),
+              label: const Text('Continue'),
+            ),
+          ],
         ],
       ),
     );

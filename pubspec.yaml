@@ -9,7 +9,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_bluetooth_serial: ^0.4.0
+  flutter_blue_plus: ^1.33.4
+  permission_handler: ^11.3.1
+  device_info_plus: ^11.2.0
   shared_preferences: ^2.5.3
   crypto: ^3.0.6
   bip39: ^1.0.6

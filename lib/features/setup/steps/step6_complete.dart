@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../../core/state/setup_state.dart';
+import '../../../core/services/storage_service.dart';
+import '../../../core/models/user.dart';
 
 class Step6Complete extends StatefulWidget {
   const Step6Complete({Key? key}) : super(key: key);
@@ -13,14 +17,28 @@ class _Step6CompleteState extends State<Step6Complete> {
   @override
   void initState() {
     super.initState();
-    _waitForESP32Confirmation();
+    _finalizeSetup();
   }
 
-  Future<void> _waitForESP32Confirmation() async {
-    await Future.delayed(const Duration(seconds: 2));
+  Future<void> _finalizeSetup() async {
+    final setup = context.read<SetupState>();
+
+    final user = User(
+      publicKey: setup.publicKey ?? 'unknown',
+      encryptedPrivateKey: setup.encryptedPrivateKey, // stored locally
+      mnemonic: null,
+    );
+
+    await StorageService.saveUser(user);
+
+    await Future.delayed(const Duration(seconds: 1));
     setState(() {
       _waiting = false;
     });
+
+    setup.clearEphemeral();
+
+    if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, '/main', (route) => false);
   }
 
@@ -33,7 +51,7 @@ class _Step6CompleteState extends State<Step6Complete> {
               children: const [
                 CircularProgressIndicator(),
                 SizedBox(height: 24),
-                Text("Waiting for ESP32 confirmation..."),
+                Text("Finalizing setup..."),
               ],
             )
           : Column(

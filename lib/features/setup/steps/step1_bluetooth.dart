@@ -3,7 +3,8 @@ import 'package:provider/provider.dart';
 import '../../../core/services/bluetooth_service.dart';
 
 class Step1Bluetooth extends StatefulWidget {
-  const Step1Bluetooth({Key? key}) : super(key: key);
+  final VoidCallback? onNext;
+  const Step1Bluetooth({Key? key, this.onNext}) : super(key: key);
 
   @override
   State<Step1Bluetooth> createState() => _Step1BluetoothState();
@@ -45,6 +46,34 @@ class _Step1BluetoothState extends State<Step1Bluetooth> {
           bluetooth.isConnected ? "Connected to ESP32!" : _status,
           style: const TextStyle(fontSize: 18),
         ),
+        // Show error message if there is one
+        if (bluetooth.lastError != null && !bluetooth.isConnected) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.withOpacity(0.1),
+              border: Border.all(color: Colors.red.withOpacity(0.3)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.error_outline, color: Colors.red, size: 20),
+                    SizedBox(width: 8),
+                    Text('Connection Error:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  bluetooth.lastError!,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 32),
         ElevatedButton(
           onPressed: _connecting || bluetooth.isConnected
@@ -58,11 +87,57 @@ class _Step1BluetoothState extends State<Step1Bluetooth> {
                 )
               : const Text('Connect to ESP32'),
         ),
-        if (bluetooth.isConnected)
+        if (bluetooth.isConnected) ...[
           const Padding(
             padding: EdgeInsets.only(top: 24),
             child: Icon(Icons.check_circle, color: Colors.greenAccent, size: 40),
           ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: widget.onNext,
+            icon: const Icon(Icons.arrow_forward),
+            label: const Text('Continue'),
+          ),
+        ],
+        const SizedBox(height: 16),
+        TextButton(
+          onPressed: widget.onNext,
+          child: const Text('Skip (demo mode without ESP32)'),
+        ),
+        // Debug info button
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: () {
+            showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Debug Info'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Connected: ${bluetooth.isConnected}'),
+                      Text('Last Error: ${bluetooth.lastError ?? "None"}'),
+                      Text('Last Response: ${bluetooth.lastResponse ?? "None"}'),
+                      Text('Last Status Code: ${bluetooth.lastStatusCode ?? "None"}'),
+                      const SizedBox(height: 16),
+                      const Text('Check your console (flutter logs) for detailed debugging information.',
+                          style: TextStyle(fontStyle: FontStyle.italic)),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            );
+          },
+          child: const Text('Show Debug Info', style: TextStyle(fontSize: 12)),
+        ),
       ],
     );
   }

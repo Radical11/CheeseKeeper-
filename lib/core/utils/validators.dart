@@ -9,7 +9,7 @@ class Validators {
 
   static bool isStrongPassword(String value) {
     final hasMinLength = value.length >= 8;
-    final hasNumber = value.contains(RegExp(r'\\d'));
+    final hasNumber = value.contains(RegExp(r'\d'));
     final hasLetter = value.contains(RegExp(r'[A-Za-z]'));
     return hasMinLength && hasNumber && hasLetter;
   }

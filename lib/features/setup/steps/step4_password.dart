@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:provider/provider.dart';
 import '../../../core/utils/validators.dart';
+import '../../../core/state/setup_state.dart';
+import '../../../core/services/crypto_service.dart';
+import '../../../core/services/wallet_service.dart';
 
 class Step4Password extends StatefulWidget {
-  const Step4Password({Key? key}) : super(key: key);
+  final VoidCallback? onNext;
+  const Step4Password({Key? key, this.onNext}) : super(key: key);
 
   @override
   State<Step4Password> createState() => _Step4PasswordState();
@@ -14,7 +20,7 @@ class _Step4PasswordState extends State<Step4Password> {
   String? _error;
   bool _created = false;
 
-  void _validateAndCreate() {
+  Future<void> _validateAndCreate(BuildContext context) async {
     final password = _passwordController.text.trim();
     final confirm = _confirmController.text.trim();
 
@@ -40,7 +46,22 @@ class _Step4PasswordState extends State<Step4Password> {
       });
       return;
     }
-    // TODO: Send password to ESP32 via Bluetooth for storage
+
+    final setup = context.read<SetupState>();
+
+    // Encrypt and store private key locally (no ESP32 required)
+    if (setup.privateKeyPlain != null) {
+      final enc = CryptoService.encryptAES(setup.privateKeyPlain!, password);
+      final payload = json.encode({
+        "ciphertext": enc['ciphertext'],
+        "iv": enc['iv'],
+      });
+      setup.setEncryptedPrivateKey(payload);
+      await WalletService.clearCachedPlainPrivateKey();
+    }
+
+    setup.setPassword(password);
+
     setState(() {
       _error = null;
       _created = true;
@@ -60,9 +81,10 @@ class _Step4PasswordState extends State<Step4Password> {
         TextField(
           controller: _passwordController,
           obscureText: true,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: "Password",
-            border: OutlineInputBorder(),
+            border: const OutlineInputBorder(),
+            errorText: _error,
           ),
         ),
         const SizedBox(height: 16),
@@ -76,21 +98,22 @@ class _Step4PasswordState extends State<Step4Password> {
         ),
         const SizedBox(height: 16),
         ElevatedButton(
-          onPressed: _validateAndCreate,
+          onPressed: () => _validateAndCreate(context),
           child: const Text("Create Password"),
         ),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child:
-                Text(_error!, style: const TextStyle(color: Colors.redAccent)),
-          ),
-        if (_created)
+        if (_created) ...[
           const Padding(
             padding: EdgeInsets.only(top: 16),
             child:
                 Icon(Icons.check_circle, color: Colors.greenAccent, size: 40),
           ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: widget.onNext,
+            icon: const Icon(Icons.arrow_forward),
+            label: const Text('Continue'),
+          ),
+        ],
       ],
     );
   }

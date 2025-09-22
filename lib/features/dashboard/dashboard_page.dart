@@ -2,87 +2,144 @@ import 'package:flutter/material.dart';
 import '../../widgets/connection_status.dart';
 import './send_page.dart';
 import './receive_page.dart';
-import 'history_page.dart';
 import '../../core/models/transaction.dart';
+import '../../core/services/blockchain_service.dart';
+import '../../core/services/transaction_service.dart';
+import '../../core/services/storage_service.dart';
+import 'package:web3dart/web3dart.dart';
 
-class DashboardPage extends StatelessWidget {
+class DashboardPage extends StatefulWidget {
   const DashboardPage({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
-    // Mock data for demonstration
-    final double balance = 2.345; // ETH
-    final List<WalletTransaction> transactions = [
-      WalletTransaction(
-        hash: "0xabc123...",
-        from: "0x1111...aaaa",
-        to: "0x2222...bbbb",
-        amount: 0.5,
-        timestamp: DateTime.now().subtract(const Duration(minutes: 10)),
-        status: "Success",
-      ),
-      WalletTransaction(
-        hash: "0xdef456...",
-        from: "0x1111...aaaa",
-        to: "0x3333...cccc",
-        amount: 1.2,
-        timestamp: DateTime.now().subtract(const Duration(days: 1)),
-        status: "Pending",
-      ),
-      WalletTransaction(
-        hash: "0xghi789...",
-        from: "0x1111...aaaa",
-        to: "0x4444...dddd",
-        amount: 0.3,
-        timestamp: DateTime.now().subtract(const Duration(days: 2)),
-        status: "Failed",
-      ),
-    ];
+  State<DashboardPage> createState() => _DashboardPageState();
+}
 
+class _DashboardPageState extends State<DashboardPage> {
+  double? _balanceEth;
+  List<WalletTransaction> _recent = [];
+  String? _address;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      // Load user address
+      final user = await StorageService.loadUser();
+      final addr = user?.publicKey;
+      if (addr == null) {
+        setState(() { _loading = false; });
+        return;
+      }
+      _address = addr;
+
+      // Load balance
+      final ethAddr = EthereumAddress.fromHex(addr);
+      final balWei = await BlockchainService.getBalance(ethAddr);
+      final balEth = balWei.getValueInUnit(EtherUnit.ether).toDouble();
+
+      // Load recent tx (last 5 saved)
+      final all = await TransactionService.list();
+      final recent = all.take(5).toList();
+
+      setState(() {
+        _balanceEth = balEth;
+        _recent = recent;
+        _loading = false;
+      });
+    } catch (_) {
+      setState(() { _loading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CheeseKeeper Dashboard'),
-        actions: [
-          const Padding(
+        title: const Text('Dashboard'),
+        actions: const [
+          Padding(
             padding: EdgeInsets.symmetric(horizontal: 16.0),
             child: ConnectionStatus(),
           ),
-          IconButton(
-            icon: const Icon(Icons.history),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const HistoryPage()),
-              );
-            },
-          ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            // Portfolio Balance
-            Card(
-              color: const Color(0xFF0A0E27),
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Portfolio Balance
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Theme.of(context).colorScheme.primary.withOpacity(0.15),
+                    Theme.of(context).colorScheme.secondary.withOpacity(0.1),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                ),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
-                child: Column(
+                child: Row(
                   children: [
-                    const Text(
-                      "Portfolio Balance",
-                      style: TextStyle(fontSize: 18, color: Colors.white70),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.all(12),
+                      child: Icon(
+                        Icons.account_balance_wallet,
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 28,
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      "$balance ETH",
-                      style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF00D4FF),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Portfolio Balance",
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                _balanceEth == null ? "-" : "${_balanceEth!.toStringAsFixed(6)} ETH",
+                                style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                                      color: Theme.of(context).colorScheme.onSurface,
+                                    ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                _address == null ? "" : _address!,
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -91,8 +148,15 @@ class DashboardPage extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             // Quick Actions
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            GridView(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4,
+                mainAxisSpacing: 0,
+                crossAxisSpacing: 12,
+                childAspectRatio: 0.9,
+              ),
               children: [
                 _QuickActionButton(
                   icon: Icons.send,
@@ -110,55 +174,66 @@ class DashboardPage extends StatelessWidget {
                     MaterialPageRoute(builder: (_) => const ReceivePage()),
                   ),
                 ),
-                _QuickActionButton(
-                    icon: Icons.shopping_cart, label: "Buy", onTap: () {}),
-                _QuickActionButton(
-                    icon: Icons.swap_horiz, label: "Swap", onTap: () {}),
+                const _QuickActionButton(icon: Icons.shopping_cart, label: "Buy", onTap: null),
+                const _QuickActionButton(icon: Icons.swap_horiz, label: "Swap", onTap: null),
               ],
             ),
             const SizedBox(height: 24),
             // Recent Transactions
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                "Recent Transactions",
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(color: Colors.white70),
-              ),
+            Text(
+              "Recent Transactions",
+              style: Theme.of(context).textTheme.displayMedium,
             ),
             const SizedBox(height: 8),
-            Expanded(
-              child: ListView.builder(
-                itemCount: transactions.length,
-                itemBuilder: (context, idx) {
-                  final tx = transactions[idx];
-                  return Card(
-                    color: const Color(0xFF151A30),
-                    child: ListTile(
-                      leading: Icon(
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _recent.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, idx) {
+                final tx = _recent[idx];
+                final statusColor = tx.status == "Success"
+                    ? Colors.greenAccent
+                    : tx.status == "Pending"
+                        ? Colors.orangeAccent
+                        : Colors.redAccent;
+                return Card(
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    leading: CircleAvatar(
+                      backgroundColor: statusColor.withOpacity(0.15),
+                      child: Icon(
                         tx.status == "Success"
                             ? Icons.check_circle
                             : tx.status == "Pending"
                                 ? Icons.hourglass_empty
                                 : Icons.cancel,
-                        color: tx.status == "Success"
-                            ? Colors.greenAccent
-                            : tx.status == "Pending"
-                                ? Colors.orangeAccent
-                                : Colors.redAccent,
+                        color: statusColor,
                       ),
-                      title: Text("To: ${tx.to}",
-                          style: const TextStyle(color: Colors.white)),
-                      subtitle: Text("${tx.amount} ETH • ${tx.timestamp}",
-                          style: const TextStyle(color: Colors.white70)),
-                      trailing: Text(tx.status,
-                          style: const TextStyle(color: Colors.white)),
                     ),
-                  );
-                },
-              ),
+                    title: Text(
+                      "To: ${tx.to}",
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                    subtitle: Text(
+                      "${tx.amount} ETH • ${tx.timestamp}",
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: statusColor.withOpacity(0.5)),
+                      ),
+                      child: Text(
+                        tx.status,
+                        style: TextStyle(color: statusColor, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -170,7 +245,7 @@ class DashboardPage extends StatelessWidget {
 class _QuickActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _QuickActionButton({
     required this.icon,
@@ -180,18 +255,54 @@ class _QuickActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        FloatingActionButton(
-          heroTag: label,
-          mini: true,
-          backgroundColor: const Color(0xFF00D4FF),
-          onPressed: onTap,
-          child: Icon(icon, color: Colors.black),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: onTap != null 
+              ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
+              : Theme.of(context).colorScheme.surface.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: onTap != null
+                ? Theme.of(context).colorScheme.primary.withOpacity(0.3)
+                : Theme.of(context).colorScheme.outline.withOpacity(0.2),
+          ),
         ),
-        const SizedBox(height: 4),
-        Text(label, style: const TextStyle(color: Colors.white70)),
-      ],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: onTap != null
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.all(12),
+              child: Icon(
+                icon,
+                color: onTap != null
+                    ? Theme.of(context).colorScheme.onPrimary
+                    : Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+                size: 24,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: onTap != null
+                    ? Theme.of(context).colorScheme.onSurface
+                    : Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

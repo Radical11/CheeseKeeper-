@@ -1,45 +1,59 @@
 import 'package:flutter/material.dart';
 import '../../core/models/transaction.dart';
+import '../../core/services/transaction_service.dart';
 
-class HistoryPage extends StatelessWidget {
+class HistoryPage extends StatefulWidget {
   const HistoryPage({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
-    // Mock transaction data
-    final List<WalletTransaction> transactions = [
-      WalletTransaction(
-        hash: "0xabc123...",
-        from: "0x1111...aaaa",
-        to: "0x2222...bbbb",
-        amount: 0.5,
-        timestamp: DateTime.now().subtract(const Duration(minutes: 10)),
-        status: "Success",
-      ),
-      WalletTransaction(
-        hash: "0xdef456...",
-        from: "0x1111...aaaa",
-        to: "0x3333...cccc",
-        amount: 1.2,
-        timestamp: DateTime.now().subtract(const Duration(days: 1)),
-        status: "Pending",
-      ),
-      WalletTransaction(
-        hash: "0xghi789...",
-        from: "0x1111...aaaa",
-        to: "0x4444...dddd",
-        amount: 0.3,
-        timestamp: DateTime.now().subtract(const Duration(days: 2)),
-        status: "Failed",
-      ),
-    ];
+  State<HistoryPage> createState() => _HistoryPageState();
+}
 
+class _HistoryPageState extends State<HistoryPage> {
+  List<WalletTransaction> _txs = [];
+  bool _loading = true;
+  bool _refreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final list = await TransactionService.list();
+    setState(() { _txs = list; _loading = false; });
+  }
+
+  Future<void> _refresh() async {
+    setState(() { _refreshing = true; });
+    await TransactionService.refreshStatuses();
+    await _load();
+    setState(() { _refreshing = false; });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Transaction History')),
-      body: ListView.builder(
-        itemCount: transactions.length,
-        itemBuilder: (context, idx) {
-          final tx = transactions[idx];
+      appBar: AppBar(
+        title: const Text('Transaction History'),
+        actions: [
+          IconButton(
+            onPressed: _refreshing ? null : _refresh,
+            icon: _refreshing
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _txs.isEmpty
+            ? const Center(child: Text('No transactions yet'))
+            : ListView.builder(
+                itemCount: _txs.length,
+                itemBuilder: (context, idx) {
+                  final tx = _txs[idx];
           return Card(
             color: const Color(0xFF151A30),
             margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
